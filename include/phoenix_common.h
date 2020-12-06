@@ -8,9 +8,10 @@ typedef struct phx_msg phx_msg_t;
 
 typedef enum phx_ret
 {
-  PHX_ENOMEM = -2,
-  PHX_EINVAL_TOKEN = -1,
-  PHX_OK = 0,
+    PHX_ENULL = -3,
+    PHX_ENOMEM = -2,
+    PHX_EINVAL_TOKEN = -1,
+    PHX_OK = 0,
 } phx_ret_t;
 
 #endif

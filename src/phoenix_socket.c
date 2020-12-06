@@ -8,116 +8,116 @@
 #include "phoenix_channel.h"
 #include "phoenix_push.h"
 
-struct phx_socket {
-  jsmn_parser p;
-  jsmntok_t* t;
-  phx_channel_t* channels;
+struct phx_socket
+{
+    phx_channel_t *channels;
+    size_t channel_cnt;
+    size_t ref;
+    void* userdata;
+
+    // Callbacks
+    phx_ret_t (*send_callback)(void* userdata, unsigned char* buffer, size_t len);
 };
 
-phx_ret_t phx_sock_alloc(phx_socket_t* socket)
+phx_ret_t phx_sock_alloc(phx_socket_t **socket_ptr, void* userdata, phx_ret_t (*send_callback)(void* userdata, unsigned char* buffer, size_t len))
 {
-  socket = malloc(sizeof(phx_socket_t));
-  if(!socket)
-    return PHX_ENOMEM;
+    *socket_ptr = malloc(sizeof(phx_socket_t));
+    if (!socket_ptr)
+        return PHX_ENOMEM;
+    phx_socket_t* socket = *socket_ptr;
 
-  jsmn_init(&socket->p);
-
-  // 5 tokens is the smallest a payload could possibly be
-  // this isn't really even useful since an empty payload isnt' worth much
-  socket->t = malloc(sizeof(jsmntok_t) * 5);
-  if(!socket->t)
-    return PHX_ENOMEM;
+    socket->channels = NULL;
+    socket->channel_cnt = 0;
+    socket->ref = 0;
+    socket->userdata = userdata;
+    socket->send_callback = send_callback;
+    return PHX_OK;
 }
 
-void phx_transport_connected(phx_socket_t* socket)
+void phx_transport_connected(phx_socket_t *socket)
+{
+    phx_channel_t* current_channel = socket->channels;
+    phx_push_t* current_push = NULL;
+    while(current_channel)
+    {
+        current_push = current_channel->pushes;
+        while(current_push)
+        {
+            phx_ret_t ret;
+            size_t len = 0;
+            unsigned char* buffer;
+            ret = phx_msg_encode(current_push->message, &buffer, &len);
+            if(ret == PHX_OK)
+                socket->send_callback(socket->userdata, buffer, len);
+
+            current_push = current_push->next;
+        }
+        current_channel = socket->channels->next;
+    }
+}
+
+phx_ret_t phx_handle_msg(phx_socket_t *socket, const char *rawPayload, size_t len)
 {
 
 }
 
-phx_ret_t phx_handle_msg(phx_socket_t* socket, const char* rawPayload, size_t len)
+phx_ret_t phx_channel_join(phx_socket_t *socket, const char *topic, const char *params)
 {
-  phx_ret_t r;
-  phx_msg_t* message;
-  r = phx_msg_alloc(message);
-  if(r < 0)
-    return r;
+    phx_ret_t r;
+    phx_channel_t* channel;
+    r = phx_add_channel(socket, &channel, topic, params);
+    if (r < 0)
+        return r;
 
-  r = phx_msg_decode(socket->t, rawPayload, message);
-  if(r < 0)
-  {
-    phx_msg_dealloc(message);
-    return r;
-  }
-}
+    phx_msg_t* msg = malloc(sizeof(phx_msg_t));
+    msg->ref = socket->ref++;
+    msg->topic = topic;
+    // msg->payload = params;
+    msg->event = "phx_join";
 
-phx_ret_t phx_channel_join(phx_socket_t* socket, const char* topic, const char* params)
-{
-  phx_ret_t r;
-  phx_channel_t* channel;
-  channel = malloc(sizeof(phx_channel_t));
-  if(!channel)
-    return PHX_ENOMEM;
+    phx_push_t* push;
 
-  // do i need to memcpy these?
-  channel->topic = topic;
-  channel->params = params;
-  channel->next = NULL;
+    r = phx_add_push(channel, &push, msg);
 
-  r = phx_add_channel(socket, channel);
-  if(r < 0)
-  {
-    free(channel);
-    return r;
-  }
-
-  phx_push_t* push;
-  push = malloc(sizeof(phx_push_t));
-  if(!push)
-  {
-    free(channel);
-    return PHX_ENOMEM;
-  }
-
-  r = phx_add_push(channel, push);
-  if(r < 0)
-  {
-    free(channel);
-    free(push);
-    return r;
-  }
-
-  return PHX_OK;
+    return PHX_OK;
 }
 
 /*
  * Private
 */
 
-phx_ret_t phx_add_channel(phx_socket_t* socket, phx_channel_t* channel)
+phx_ret_t phx_add_channel(phx_socket_t *socket, phx_channel_t** channel_ptr, const char* topic, const char* params)
 {
-  if(socket->channels == NULL)
-  {
-    socket->channels = channel;
-    return PHX_OK;
-  }
-  phx_channel_t* current = socket->channels;
-  while(current)
-    current = current->next;
+    if(socket == NULL)
+        return PHX_ENULL;
 
-  current->next = channel;
-  return PHX_OK;
+    *channel_ptr = malloc(sizeof(phx_channel_t));
+    phx_channel_t* channel = *channel_ptr;
+    if(!channel)
+        return PHX_ENOMEM;
+    channel->pushes =  NULL;
+    channel->push_cnt = 0;
+    channel->topic = topic;
+    channel->params = params;
+    channel->next = socket->channels;
+    socket->channels = channel;
+    socket->channel_cnt++;
+    return PHX_OK;
 }
 
-phx_ret_t phx_add_push(phx_channel_t* channel, phx_push_t* push)
+phx_ret_t phx_add_push(phx_channel_t *channel, phx_push_t **push_ptr, phx_msg_t* msg)
 {
-  if(channel->pushes == NULL)
-  {
+    if(channel == NULL)
+        return PHX_ENULL;
+
+    *push_ptr = malloc(sizeof(phx_push_t));
+    phx_push_t* push = *push_ptr;
+    if(!push)
+        return PHX_ENOMEM;
+
+    push->message = msg;
+    push->next = channel->pushes;
     channel->pushes = push;
+    channel->push_cnt++;
     return PHX_OK;
-  }
-  phx_push_t* current = channel->pushes;
-  while(current)
-    current = current->next;
-  current->next = push;
-  return PHX_OK;
 }

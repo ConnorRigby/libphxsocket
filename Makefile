@@ -4,14 +4,20 @@ PREFIX=bin
 SRC=$(wildcard src/*.c)
 OBJ = $(SRC:src/%.c=$(BUILD)/%.o)
 
-CFLAGS=-Iinclude \
-			 -Ithirdparty
+OBJ+=_build/cJSON.o
+
+CFLAGS=-g\
+       -Iinclude \
+			 -Ithirdparty/cJSON
 
 LDFLAGS=-lwebsockets -lcap
 
-.PHONY: all clean
+.PHONY: all clean format
 
 all: $(PREFIX) $(BUILD) $(PREFIX)/test
+
+format: all
+	astyle -n -r 'src/*.c' 'include/*.h'
 
 $(BUILD)/%.o: src/%.c
 	$(CC) -c $(CFLAGS) -o $@ $<
