@@ -58,7 +58,6 @@ void phx_transport_connected(phx_socket_t *socket)
 
 phx_ret_t phx_handle_msg(phx_socket_t *socket, const char *rawPayload, size_t len)
 {
-
 }
 
 phx_ret_t phx_channel_join(phx_socket_t *socket, const char *topic, const char *params)
